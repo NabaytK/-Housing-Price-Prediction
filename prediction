@@ -1,101 +1,154 @@
-# 🔹 Step 1: Import Libraries
-import pandas as pd
+```python
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.preprocessing import StandardScaler
+import joblib
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.linear_model import LinearRegression, Lasso
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.pipeline import make_pipeline
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.inspection import permutation_importance
+from sklearn.compose import TransformedTargetRegressor
+from scipy import stats
 
-# 🔹 Step 2: Load Dataset
-df = pd.read_csv("housing.csv")
+RANDOM_STATE = 42
+TEST_SIZE = 0.2
+OUTLIER_THRESHOLD = 3
 
-# 🔹 Step 3: Handle Missing Values (All Columns)
-for col in df.columns:
-    if df[col].isnull().any():
-        if df[col].dtype in ['int64', 'float64']:
-            df[col].fillna(df[col].median(), inplace=True)
+def load_data(path="housing.csv"):
+    df = pd.read_csv(path)
+    df["median_house_value"] = np.log1p(df["median_house_value"])
+    df["rooms_per_household"] = df["total_rooms"] / df["households"]
+    df["bedrooms_per_room"] = df["total_bedrooms"] / df["total_rooms"]
+    df["population_per_household"] = df["population"] / df["households"]
+    
+    for col in df.columns:
+        if df[col].isnull().any():
+            if df[col].dtype in ["float64", "int64"]:
+                df[col].fillna(df[col].median(), inplace=True)
+            else:
+                df[col].fillna(df[col].mode()[0], inplace=True)
+    
+    df = pd.get_dummies(df, columns=["ocean_proximity"], drop_first=True)
+    
+    return df
+
+def perform_eda(df):
+    plt.figure(figsize=(18, 12))
+    plt.subplot(2, 2, 1)
+    sns.histplot(df["median_house_value"], kde=True, bins=30)
+    plt.title("House Value Distribution")
+    plt.xlabel("Median House Value ($)")
+    
+    plt.subplot(2, 2, 2)
+    corr_matrix = df.corr(numeric_only=True)
+    sns.heatmap(corr_matrix, annot=False, cmap="coolwarm", cbar_kws={"label": "Correlation Coefficient"})
+    plt.title("Feature Correlation Matrix")
+    
+    plt.subplot(2, 2, 3)
+    sns.scatterplot(x="longitude", y="latitude", data=df, hue="median_house_value", palette="viridis",
+                    size="population", sizes=(10, 200), alpha=0.5)
+    plt.title("Geographic Price Distribution")
+    plt.xlabel("Longitude")
+    plt.ylabel("Latitude")
+    
+    plt.subplot(2, 2, 4)
+    sns.pairplot(df[["median_house_value", "median_income", "housing_median_age", "rooms_per_household"]])
+    plt.tight_layout()
+    plt.show()
+
+def preprocess_data(df):
+    numeric_cols = df.select_dtypes(include=np.number).columns
+    z_scores = np.abs(stats.zscore(df[numeric_cols]))
+    df_clean = df[(z_scores < OUTLIER_THRESHOLD).all(axis=1)]
+    
+    X = df_clean.drop("median_house_value", axis=1)
+    y = df_clean["median_house_value"]
+    
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    return X_scaled, y
+
+def train_models(X, y):
+    base_pipe = [
+        ("scaler", StandardScaler()),
+        ("poly", PolynomialFeatures(degree=2, include_bias=False))
+    ]
+    
+    models = {
+        "Linear Regression": make_pipeline(*base_pipe, LinearRegression()),
+        "Lasso Regression": make_pipeline(*base_pipe, Lasso(random_state=RANDOM_STATE, max_iter=10000)),
+        "Random Forest": RandomForestRegressor(random_state=RANDOM_STATE, n_jobs=-1),
+        "Gradient Boosting": GradientBoostingRegressor(random_state=RANDOM_STATE)
+    }
+    
+    param_grids = {
+        "Lasso Regression": {"lasso__alpha": [0.01, 0.1, 1, 10]},
+        "Random Forest": {"n_estimators": [100, 200], "max_depth": [None, 10]},
+        "Gradient Boosting": {"n_estimators": [100, 200], "learning_rate": [0.01, 0.1]}
+    }
+    
+    best_models = {}
+    for name, model in models.items():
+        if name in param_grids:
+            gs = GridSearchCV(model, param_grids[name], cv=5, scoring="neg_mean_squared_error", n_jobs=-1)
+            gs.fit(X, y)
+            best_models[name] = gs.best_estimator_
         else:
-            df[col].fillna(df[col].mode()[0], inplace=True)
+            model.fit(X, y)
+            best_models[name] = model
+    
+    return best_models
 
-# 🔹 Step 4: Convert Categorical Column to Numeric
-df = pd.get_dummies(df, columns=["ocean_proximity"], drop_first=True)
+def evaluate_models(models, X_test, y_test):
+    metrics = []
+    for name, model in models.items():
+        y_pred = model.predict(X_test)
+        metrics.append({
+            "Model": name,
+            "RMSE": np.sqrt(mean_squared_error(y_test, y_pred)),
+            "MAE": mean_absolute_error(y_test, y_pred),
+            "R²": r2_score(y_test, y_pred),
+            "Cross-Val R²": cross_val_score(model, X_test, y_test, cv=5).mean()
+        })
+    
+    metrics_df = pd.DataFrame(metrics)
+    print("🏆 Model Performance Comparison:")
+    print(metrics_df.sort_values("RMSE"))
+    
+    plt.figure(figsize=(12, 8))
+    feature_importance = permutation_importance(models["Gradient Boosting"], X_test, y_test, n_repeats=10,
+                                                random_state=RANDOM_STATE, n_jobs=-1)
+    sorted_idx = feature_importance.importances_mean.argsort()[::-1]
+    plt.barh(np.array(X_test.columns)[sorted_idx], feature_importance.importances_mean[sorted_idx])
+    plt.xlabel("Permutation Importance")
+    plt.title("Feature Importance Analysis")
+    plt.tight_layout()
+    plt.show()
+    
+    return metrics_df
 
-# 🔹 Step 5: Define Features and Target
-X = df.drop("median_house_value", axis=1)
-y = df["median_house_value"]
-
-# 🔹 Step 6: Train-Test Split
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-# 🔹 Step 7: Create Pipeline with Scaling and Model
-model = make_pipeline(StandardScaler(), LinearRegression())
-model.fit(X_train, y_train)
-
-# 🔹 Step 8: Make Predictions
-y_pred = model.predict(X_test)
-
-# 🔹 Step 9: Evaluate Model Performance
-mse = mean_squared_error(y_test, y_pred)
-rmse = np.sqrt(mse)
-r2 = r2_score(y_test, y_pred)
-cv_scores = cross_val_score(model, X, y, cv=5, scoring="r2")
-
-print(f"✅ RMSE: {rmse:.2f}")
-print(f"✅ R² Score: {r2:.2f}")
-print(f"✅ Cross-Validated R²: {cv_scores.mean():.2f} (±{cv_scores.std():.2f})")
-
-# 🔹 Step 10: Advanced Visualizations
-plt.figure(figsize=(18, 12))
-
-# 1. Actual vs Predicted Prices
-plt.subplot(2, 2, 1)
-sns.regplot(x=y_test, y=y_pred, line_kws={"color": "red"})
-plt.xlabel("Actual Prices ($)", fontsize=12)
-plt.ylabel("Predicted Prices ($)", fontsize=12)
-plt.title("Actual vs Predicted Prices", fontsize=14)
-plt.grid(alpha=0.3)
-
-# 2. Residual Plot
-plt.subplot(2, 2, 2)
-residuals = y_test - y_pred
-sns.scatterplot(x=y_pred, y=residuals, alpha=0.6)
-plt.axhline(y=0, color="red", linestyle="--")
-plt.xlabel("Predicted Prices ($)", fontsize=12)
-plt.ylabel("Residuals ($)", fontsize=12)
-plt.title("Residual Analysis", fontsize=14)
-plt.grid(alpha=0.3)
-
-# 3. Error Distribution
-plt.subplot(2, 2, 3)
-sns.histplot(residuals, kde=True, bins=30)
-plt.xlabel("Prediction Error ($)", fontsize=12)
-plt.title("Error Distribution", fontsize=14)
-plt.grid(alpha=0.3)
-
-# 4. Feature Importance
-plt.subplot(2, 2, 4)
-coefficients = model.named_steps["linearregression"].coef_
-features = X.columns
-sns.barplot(x=coefficients, y=features, palette="viridis")
-plt.xlabel("Coefficient Value", fontsize=12)
-plt.title("Feature Importance", fontsize=14)
-plt.grid(alpha=0.3)
-
-plt.tight_layout()
-plt.show()
-
-# 🔹 Bonus: Prediction Error Analysis
-error_df = pd.DataFrame({
-    "Actual": y_test,
-    "Predicted": y_pred,
-    "Error": residuals,
-    "Percent Error": (residuals/y_test)*100
-}).reset_index(drop=True)
-
-print("\n📊 Top 10 Prediction Errors:")
-print(error_df.nlargest(10, "Error").round(2))
+if __name__ == "__main__":
+    df = load_data()
+    perform_eda(df)
+    X, y = preprocess_data(df)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
+    
+    models = train_models(X_train, y_train)
+    metrics_df = evaluate_models(models, X_test, y_test)
+    
+    best_model = models[metrics_df.loc[metrics_df["RMSE"].idxmin(), "Model"]]
+    joblib.dump(best_model, "best_housing_model.pkl", compress=3)
+    
+    final_model = TransformedTargetRegressor(regressor=best_model, func=np.log1p, inverse_func=np.expm1)
+    final_model.fit(X_train, y_train)
+    
+    print(f"\n💾 Best model saved as 'best_housing_model.pkl'")
+    print("\n🔍 Final Model Diagnostics:")
+    print(f"Training Score: {final_model.score(X_train, y_train):.2f}")
+    print(f"Testing Score: {final_model.score(X_test, y_test):.2f}")
+```
