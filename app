@@ -12,7 +12,7 @@ def predict():
     features = preprocess_input(data)  # Create your preprocessing function
     prediction_log = model.predict([features])
     return jsonify({
-        'prediction': float(np.expm1(prediction_log[0]) 
+        'prediction': float(np.expm1(prediction_log[0]) )
     })
 
 if __name__ == '__main__':
