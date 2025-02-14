@@ -1,0 +1,25 @@
+import joblib
+import numpy as np
+
+# Load the model
+model = joblib.load("best_housing_model.pkl")
+
+# Prepare sample input (use same features as training data)
+sample_input = pd.DataFrame({
+    'longitude': [-122.25],
+    'latitude': [37.85],
+    'housing_median_age': [28],
+    'total_rooms': [2500],
+    'total_bedrooms': [500],
+    'population': [1000],
+    'households': [400],
+    'median_income': [8.5],
+    'ocean_proximity_<1H OCEAN': [1],  # Add your actual dummy columns
+    # ... other dummy columns
+})
+
+# Convert to log-scale dollar value
+prediction_log = model.predict(sample_input)
+prediction = np.expm1(prediction_log)  # Convert back to original scale
+
+print(f"Predicted house value: ${prediction[0]:,.2f}")
