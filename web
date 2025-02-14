@@ -1,0 +1,23 @@
+<!-- index.html -->
+<input type="number" id="longitude" placeholder="Longitude">
+<input type="number" id="latitude" placeholder="Latitude">
+<button onclick="predictPrice()">Estimate Value</button>
+<div id="result"></div>
+
+<script>
+async function predictPrice() {
+  const response = await fetch('/predict', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      longitude: parseFloat(document.getElementById('longitude').value),
+      latitude: parseFloat(document.getElementById('latitude').value),
+      // ... other features
+    })
+  });
+  
+  const data = await response.json();
+  document.getElementById('result').innerHTML = 
+    `Estimated Value: $${data.prediction.toLocaleString()}`;
+}
+</script>
