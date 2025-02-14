@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Housing Price Prediction</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f4f4;
+            margin: 50px;
+        }
+        h1 {
+            color: #333;
+        }
+        input {
+            padding: 10px;
+            margin: 10px;
+            width: 200px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 15px;
+            font-size: 16px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Housing Price Prediction</h1>
+    <p>Enter location details to estimate the house price.</p>
+
+    <input type="number" id="longitude" placeholder="Longitude">
+    <input type="number" id="latitude" placeholder="Latitude">
+    <button onclick="predictPrice()">Estimate Value</button>
+
+    <div id="result"></div>
+
+    <script>
+        async function predictPrice() {
+            const longitude = parseFloat(document.getElementById('longitude').value);
+            const latitude = parseFloat(document.getElementById('latitude').value);
+
+            if (isNaN(longitude) || isNaN(latitude)) {
+                document.getElementById('result').innerHTML = "Please enter valid coordinates!";
+                return;
+            }
+
+            const response = await fetch('/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ longitude, latitude })
+            });
+
+            const data = await response.json();
+            document.getElementById('result').innerHTML = `Estimated Value: $${data.prediction.toLocaleString()}`;
+        }
+    </script>
+
+</body>
+</html>
