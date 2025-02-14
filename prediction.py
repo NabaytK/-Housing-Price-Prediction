@@ -1,4 +1,3 @@
-# housing_prediction.py
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -31,15 +30,15 @@ def load_data(path="housing.csv"):
     df["bedrooms_per_room"] = df["total_bedrooms"] / df["total_rooms"]
     df["population_per_household"] = df["population"] / df["households"]
     
-    # Handle missing values
+    # Handle missing values (Fixed Pandas 3.0 Warning)
     for col in df.columns:
         if df[col].isnull().any():
             if df[col].dtype in ["float64", "int64"]:
-                df[col].fillna(df[col].median(), inplace=True)
+                df[col] = df[col].fillna(df[col].median())  # ✅ Safe replacement
             else:
-                df[col].fillna(df[col].mode()[0], inplace=True)
+                df[col] = df[col].fillna(df[col].mode()[0])  # ✅ Safe replacement
     
-    # Convert categoricals
+    # Convert categorical variables into dummy variables
     df = pd.get_dummies(df, columns=["ocean_proximity"], drop_first=True)
     
     return df
@@ -57,23 +56,20 @@ def perform_eda(df):
     # Correlation heatmap
     plt.subplot(2, 2, 2)
     corr_matrix = df.corr(numeric_only=True)
-    sns.heatmap(corr_matrix, annot=False, cmap="coolwarm", 
-               cbar_kws={"label": "Correlation Coefficient"})
+    sns.heatmap(corr_matrix, annot=False, cmap="coolwarm", cbar_kws={"label": "Correlation Coefficient"})
     plt.title("Feature Correlation Matrix")
     
     # Geographic distribution
     plt.subplot(2, 2, 3)
-    sns.scatterplot(x="longitude", y="latitude", data=df,
-                   hue="median_house_value", palette="viridis",
-                   size="population", sizes=(10, 200), alpha=0.5)
+    sns.scatterplot(x="longitude", y="latitude", data=df, hue="median_house_value", palette="viridis",
+                    size="population", sizes=(10, 200), alpha=0.5)
     plt.title("Geographic Price Distribution")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
     
     # Feature relationships
     plt.subplot(2, 2, 4)
-    sns.pairplot(df[["median_house_value", "median_income",
-                   "housing_median_age", "rooms_per_household"]])
+    sns.pairplot(df[["median_house_value", "median_income", "housing_median_age", "rooms_per_household"]])
     plt.tight_layout()
     plt.show()
 
@@ -205,3 +201,4 @@ if __name__ == "__main__":
     print("\n🔍 Final Model Diagnostics:")
     print(f"Training Score: {final_model.score(X_train, y_train):.2f}")
     print(f"Testing Score: {final_model.score(X_test, y_test):.2f}")
+
